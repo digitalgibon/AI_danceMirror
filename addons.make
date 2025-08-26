@@ -1,0 +1,5 @@
+ofxGui
+ofxOsc
+ofxRealsense2
+ofxTensorFlow2
+ofxXmlSettings
