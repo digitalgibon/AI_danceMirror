@@ -78,6 +78,8 @@ OF_ROOT = /home/fryga/of_v0.11.2_linux64gcc6_release
 ################################################################################
 # PROJECT_LDFLAGS=-Wl,-rpath=./libs
 PROJECT_LDFLAGS = -L/usr/local/lib -lrealsense2 -Wl,-rpath=/home/fryga/of_v0.11.2_linux64gcc6_release/addons/ofxTensorFlow2/libs/tensorflow/lib/linux64
+PROJECT_LDFLAGS += -L/usr/local/cuda-12.5/lib64 -lcuda -lcudart -lcublas -lcurand -lcufft -lcusparse -lcusolver
+PROJECT_LDFLAGS += -L/home/fryga/of_v0.11.2_linux64gcc6_release/apps/myApps/AI_danceMirror/cudnn-linux-x86_64-9.1.0.70_cuda12-archive/lib -lcudnn
 
 ################################################################################
 # PROJECT DEFINES
@@ -89,6 +91,9 @@ PROJECT_LDFLAGS = -L/usr/local/lib -lrealsense2 -Wl,-rpath=/home/fryga/of_v0.11.
 #   Note: Leave a leading space when adding list items with the += operator
 ################################################################################
 # PROJECT_DEFINES = 
+
+# Enable CUDA support for TensorFlow
+PROJECT_DEFINES = GOOGLE_CUDA=1 TF_ENABLE_GPU=1
 
 ################################################################################
 # PROJECT CFLAGS
@@ -106,6 +111,10 @@ PROJECT_LDFLAGS = -L/usr/local/lib -lrealsense2 -Wl,-rpath=/home/fryga/of_v0.11.
 #   Note: Leave a leading space when adding list items with the += operator
 ################################################################################
 PROJECT_CFLAGS = -std=c++17 
+
+# CUDA include paths for CUDA 12.5 compatibility
+PROJECT_CFLAGS += -I/usr/local/cuda-12.5/include
+PROJECT_CFLAGS += -I/home/fryga/of_v0.11.2_linux64gcc6_release/apps/myApps/AI_danceMirror/cudnn-linux-x86_64-9.1.0.70_cuda12-archive/include
 
 ################################################################################
 # PROJECT OPTIMIZATION CFLAGS
@@ -139,4 +148,4 @@ PROJECT_CFLAGS = -std=c++17
 #   Note: Leave a leading space when adding list items with the += operator
 ################################################################################
 # PROJECT_CXX = 
-# PROJECT_CC = 
+# PROJECT_CC =

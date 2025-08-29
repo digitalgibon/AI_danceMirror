@@ -1,157 +1,207 @@
+/*
+ * ofxTensorFlow2
+ *
+ * Copyright (c) 2021 ZKM | Hertz-Lab
+ * Paul Bethge <bethge@zkm.de>
+ * Dan Wilcox <dan.wilcox@zkm.de>
+ *
+ * BSD Simplified License.
+ * For information on usage and redistribution, and for a DISCLAIMER OF ALL
+ * WARRANTIES, see the file, "LICENSE.txt," in this distribution.
+ *
+ * This code has been developed at ZKM | Hertz-Lab as part of „The Intelligent 
+ * Museum“ generously funded by the German Federal Cultural Foundation.
+ */
+
 #include "ofApp.h"
 
 //--------------------------------------------------------------
-void ofApp::setup(){
-    ofSetWindowTitle("Intel RealSense D435 Test");
-    ofSetFrameRate(30);
-    
-    // Configure streams
-    cfg.enable_stream(RS2_STREAM_COLOR, width, height, RS2_FORMAT_RGB8, fps);
-    cfg.enable_stream(RS2_STREAM_DEPTH, width, height, RS2_FORMAT_Z16, fps);
-    
-    // Start pipeline
-    try {
-        pipe.start(cfg);
-        cameraInitialized = true;
-        ofLogNotice() << "RealSense D435 started successfully";
-    } catch (const rs2::error & e) {
-        ofLogError() << "Failed to start RealSense: " << e.what();
-        cameraInitialized = false;
-    }
-    
-    // Allocate textures
-    colorTex.allocate(width, height, GL_RGB);
-    depthTex.allocate(width, height, GL_LUMINANCE);
+void ofApp::setup() {
+	ofSetFrameRate(60);
+	ofSetVerticalSync(true);
+	ofSetWindowTitle("example_style_transfer");
+	
+	// use only a portion of the GPU memory & grow as needed
+	if(!ofxTF2::setGPUMaxMemory(ofxTF2::GPU_PERCENT_70, true)) {
+		ofLogError() << "failed to set GPU Memory options!";
+	}
 
-    // output image
-    imgOut.allocate(width, height, OF_IMAGE_COLOR);
-    
-    ofLogNotice() << "Basic setup completed, TensorFlow disabled for now";
+	// go through the models directory and print out all the paths
+	ofDirectory modelsDir(ofToDataPath("models"));
+	modelsDir.listDir();
+	for(int i = 0; i < modelsDir.size(); i++) {
+		ofDirectory sub(modelsDir.getPath(i));
+		if(sub.isDirectory()) {
+			auto absSubPath = sub.getAbsolutePath();
+   			ofLogNotice() << "Found model: " << absSubPath;
+			modelPaths.push_back(absSubPath);
+		}
+	}
+
+	// load first model, bail out on error
+	if(!model.load(modelPaths[modelIndex])) {
+		std::exit(EXIT_FAILURE);
+	}
+	modelName = ofFilePath::getBaseName(modelPaths[modelIndex]);
+
+#ifdef USE_LIVE_VIDEO
+	// setup video grabber
+	vidIn.setDesiredFrameRate(30);
+	vidIn.setup(camWidth, camHeight);
+#else
+	// load input image
+	ofImage imgIn;
+	//imgIn.load("zkm512x512.jpg"); // alt square image
+	imgIn.load("zkm640x480.jpg");
+	input = ofxTF2::imageToTensor(imgIn);
+
+	// alternatively, load input image via cppflow
+	//std::string imgPath(ofToDataPath("zkm512x512.jpg")); // smaller
+	//std::string imgPath(ofToDataPath("zkm640x480.jpg")); // bigger
+	//input = cppflow::decode_jpeg(cppflow::read_file(imgPath));
+	//input = cppflow::cast(input, TF_UINT8, TF_FLOAT);
+
+	// process image on first update()
+	newInput = true;
+#endif
+
+	// allocate output image
+	imgOut.allocate(nnWidth, nnHeight, OF_IMAGE_COLOR);
+
+	// start the model!
+	//model.setIdleTime(1); // very short idle time for fast systems
+	//model.setIdleTime(33); // longer ~2 fps idle time for slower systems
+	model.startThread();
+	loadTimestamp = ofGetElapsedTimef();
+}
+
+//--------------------------------------------------------------
+void ofApp::update() {
+
+	// load a new model after a timeout
+	if(autoLoad && ofGetElapsedTimef() - loadTimestamp >= loadTimeSeconds) {
+		modelIndex++;
+		if(modelIndex >= modelPaths.size()) {
+			modelIndex = 0;
+		}
+		ofLogNotice() << "Load model: " << modelPaths[modelIndex];
+		//model.load(modelPaths[modelIndex]); // blocks when loading
+		model.loadAsync(modelPaths[modelIndex]); // non-blocking, loads in thread
+		modelName = ofFilePath::getBaseName(modelPaths[modelIndex]);
+		loadTimestamp = ofGetElapsedTimef();
+		newInput = true; // try to update
+	}
+
+#ifdef USE_LIVE_VIDEO
+	// create tensor from video frame
+	vidIn.update();
+	if(vidIn.isFrameNew()) {
+		// get the frame, resize, and copy to tensor
+		ofPixels & pixels = vidIn.getPixels();
+		ofPixels resizedPixels(pixels);
+		resizedPixels.resize(nnWidth, nnHeight);
+		input = ofxTF2::pixelsToTensor(resizedPixels);
+		newInput = true;
+	}
+#else
+	// input tensor already created from image file
+#endif
+
+	// thread-safe conditional input update
+	if(newInput && model.readyForInput()) {
+		model.update(input);
+		newInput = false;
+	}
+
+	// thread-safe conditional output update
+	if(model.isOutputNew()) {
+		auto output = model.getOutput();
+		ofxTF2::tensorToImage(output, imgOut);
+		imgOut.update();
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::draw() {
+	ofSetColor(255);
+
+	// draw image
+	// TODO: doesn't handle aspect ratio differences...
+	imgOut.draw(0, 0, ofGetWidth(), ofGetHeight());
+
+	// draw change info
+	float diff = (ofGetElapsedTimef() - loadTimestamp);
+	std::string text = "Model: " + modelName;
+	if(autoLoad) {
+		text += "\nLoading new model in ";
+		text += std::to_string((int)(loadTimeSeconds - diff) + 1);
+	}
+	ofDrawBitmapStringHighlight(text, 4, 12);
+
+	// draw fps
+	text = ofToString((int)ofGetFrameRate()) + " fps\n";
+	text += "a - toggle auto load";
+	ofDrawBitmapStringHighlight(text, ofGetWidth() - 164, 12);
+}
+
+//--------------------------------------------------------------
+void ofApp::keyPressed(int key) {
+	switch(key) {
+		case 'a': case 'A':
+			autoLoad = !autoLoad;
+			if(autoLoad) {
+				loadTimestamp = ofGetElapsedTimef();
+			}
+			break;
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::keyReleased(int key) {
 
 }
 
 //--------------------------------------------------------------
-void ofApp::update(){
-    if (!cameraInitialized) return;
-    
-    try {
-        // Wait for frames with timeout
-        rs2::frameset frames = pipe.wait_for_frames(200);
-        
-        // Get color frame
-        rs2::frame color = frames.get_color_frame();
-        if (color) {
-            // Create ofPixels from RealSense data
-            ofPixels colorPixels;
-            colorPixels.setFromPixels((unsigned char*)color.get_data(), width, height, OF_PIXELS_RGB);
-            
-            // Update texture for display
-            colorTex.loadData(colorPixels);
-            
-            // Process through style transfer
-            if(styleTransferReady) {
-                styleTransfer.setInput(colorPixels);
-            }
-        }
-        
-        // Get depth frame and convert to grayscale
-        rs2::depth_frame depth = frames.get_depth_frame();
-        if (depth) {
-            vector<unsigned char> depthPixels(width * height);
-            const uint16_t* depthData = (const uint16_t*)depth.get_data();
-            
-            for (int i = 0; i < width * height; i++) {
-                // Map depth values (0-10m) to grayscale
-                depthPixels[i] = ofMap(depthData[i], 0, 10000, 255, 0, true);
-            }
-            depthTex.loadData(depthPixels.data(), width, height, GL_LUMINANCE);
-        }
-        
-        // Update style transfer
-        if(styleTransferReady && styleTransfer.update()) {
-            // Style transfer output is ready
-            imgOut.setFromPixels(styleTransfer.getOutput().getPixels());
-        }
-        
-    } catch (const rs2::error & e) {
-        ofLogError() << "Frame capture error: " << e.what();
-    }
+void ofApp::mouseMoved(int x, int y) {
+
 }
 
 //--------------------------------------------------------------
-void ofApp::draw(){
-    ofBackground(20);
-    
-    if (cameraInitialized) {
-        // Draw original color stream
-        ofSetColor(255);
-        colorTex.draw(0, 0, width/2, height/2);
-        
-        // Draw depth stream
-        depthTex.draw(width/2, 0, width/2, height/2);
-        
-        // Draw style-transferred output
-        if(imgOut.isAllocated()) {
-            imgOut.draw(0, height/2, width, height/2);
-        }
-        
-        // Draw labels
-        ofSetColor(255);
-        ofDrawBitmapStringHighlight("Original", 10, 20, ofColor::black, ofColor::white);
-        ofDrawBitmapStringHighlight("Depth", width/2 + 10, 20, ofColor::black, ofColor::white);
-        ofDrawBitmapStringHighlight("Style Transfer", 10, height/2 + 20, ofColor::black, ofColor::white);
-        ofDrawBitmapStringHighlight("FPS: " + ofToString(ofGetFrameRate(), 1), 10, height - 20, ofColor::black, ofColor::green);
-    } else {
-        ofSetColor(255, 0, 0);
-        ofDrawBitmapString("Camera not initialized!", ofGetWidth()/2 - 100, ofGetHeight()/2);
-    }
-    
-    // Instructions
-    ofSetColor(200);
-    ofDrawBitmapString("Press 'f' for fullscreen, 's' to change style, 'ESC' to exit", 10, ofGetHeight() - 40);
+void ofApp::mouseDragged(int x, int y, int button) {
+
 }
 
 //--------------------------------------------------------------
-void ofApp::exit(){
-    // Stop style transfer thread
-    if(styleTransferReady) {
-        styleTransfer.stopThread();
-    }
-    
-    if (cameraInitialized) {
-        pipe.stop();
-        ofLogNotice() << "RealSense camera stopped";
-    }
+void ofApp::mousePressed(int x, int y, int button) {
+
 }
 
 //--------------------------------------------------------------
-void ofApp::keyPressed(int key){
-    if (key == 'f' || key == 'F') {
-        ofToggleFullscreen();
-    }
-    else if (key == 's' || key == 'S') {
-        nextStyle();
-    }
+void ofApp::mouseReleased(int x, int y, int button) {
+
 }
 
 //--------------------------------------------------------------
-void ofApp::setStyle(const std::string& path) {
-    stylePath = path;
-    ofImage styleImage;
-    styleImage.load(stylePath);
-    if(styleImage.isAllocated() && styleTransferReady) {
-        styleTransfer.setStyle(styleImage.getPixels());
-        ofLogNotice() << "Style image loaded: " << stylePath;
-    } else {
-        ofLogError() << "Failed to load style image: " << stylePath;
-    }
+void ofApp::mouseEntered(int x, int y) {
+
 }
 
 //--------------------------------------------------------------
-void ofApp::nextStyle() {
-    styleIndex = (styleIndex + 1) % stylePaths.size();
-    setStyle(stylePaths[styleIndex]);
+void ofApp::mouseExited(int x, int y) {
+
 }
 
+//--------------------------------------------------------------
+void ofApp::windowResized(int w, int h) {
 
+}
 
+//--------------------------------------------------------------
+void ofApp::dragEvent(ofDragInfo dragInfo) {
+
+}
+
+//--------------------------------------------------------------
+void ofApp::gotMessage(ofMessage msg) {
+
+}

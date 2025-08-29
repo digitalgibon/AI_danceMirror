@@ -1,41 +1,26 @@
-# Object files
-obj/
+# Ignore everything by default
+*
+
+# But track these essential files
+!.gitignore
+!README.md
+!LICENSE
+
+# Track source code directory
+!src/
+!src/**
+
+# Track build configuration files
+!Makefile
+!config.make
+!addons.make
+
+# Ignore common temporary and build files
 *.o
 *.obj
-
-# Compiled Dynamic libraries
-*.so
-*.so.*
-*.dylib
-*.dll
-
-# Compiled Static libraries
-*.a
-*.lib
-
-# Executables
-bin/AI_danceMirror
-bin/*.exe
-bin/*.app
-
-# TensorFlow libraries
-bin/libtensorflow*
-bin/libfmod*
-
-# Build directories
-build/
-**/build/
-
-# VS Code
-.vscode/
-*.code-workspace
-
-# IDE files
-*.xcodeproj
-*.sln
-*.vcxproj*
-*.filters
-*.user
+*.tmp
+*.swp
+*~
 
 # OS generated files
 .DS_Store
@@ -46,21 +31,11 @@ build/
 ehthumbs.db
 Thumbs.db
 
-# Temporary files
-*~
-*.tmp
-*.swp
-
-# Large model files (optional - you might want to track these)
-bin/data/model/
-*.pb
-
-# Downloaded archives
-*.tar.gz
-*.zip
-
-# Log files
-*.log
-
-# Local configuration
-config.local.make
+# IDE files
+.vscode/
+*.code-workspace
+*.xcodeproj
+*.sln
+*.vcxproj*
+*.filters
+*.user
