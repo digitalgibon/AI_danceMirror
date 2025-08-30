@@ -63,6 +63,9 @@ OF_ROOT = /home/fryga/of_v0.11.2_linux64gcc6_release
 ################################################################################
 # PROJECT_EXCLUSIONS =
 
+# Exclude ofxRealsense2 addon to avoid conflicts with system RealSense
+PROJECT_EXCLUSIONS = $(OF_ROOT)/addons/ofxRealsense2%
+
 ################################################################################
 # PROJECT LINKER FLAGS
 #	These flags will be sent to the linker when compiling the executable.
@@ -76,10 +79,20 @@ OF_ROOT = /home/fryga/of_v0.11.2_linux64gcc6_release
 # add a runtime path to search for those shared libraries, since they aren't 
 # incorporated directly into the final executable application binary.
 ################################################################################
-# PROJECT_LDFLAGS=-Wl,-rpath=./libs
-PROJECT_LDFLAGS = -L/usr/local/lib -lrealsense2 -Wl,-rpath=/home/fryga/of_v0.11.2_linux64gcc6_release/addons/ofxTensorFlow2/libs/tensorflow/lib/linux64
+# TensorFlow library path  
+PROJECT_LDFLAGS = -Wl,-rpath=/home/fryga/of_v0.11.2_linux64gcc6_release/addons/ofxTensorFlow2/libs/tensorflow/lib/linux64
+# CUDA libraries
 PROJECT_LDFLAGS += -L/usr/local/cuda-12.5/lib64 -lcuda -lcudart -lcublas -lcurand -lcufft -lcusparse -lcusolver
+# cuDNN library
 PROJECT_LDFLAGS += -L/home/fryga/of_v0.11.2_linux64gcc6_release/apps/myApps/AI_danceMirror/cudnn-linux-x86_64-9.1.0.70_cuda12-archive/lib -lcudnn
+# Use system RealSense library (place at end for proper linking order)
+PROJECT_LDFLAGS += -L/usr/local/lib -lrealsense2
+
+################################################################################
+# USER FLAGS
+#   Experimental user flags that will be added at the end
+################################################################################
+USER_LDFLAGS = -lrealsense2
 
 ################################################################################
 # PROJECT DEFINES
@@ -94,6 +107,9 @@ PROJECT_LDFLAGS += -L/home/fryga/of_v0.11.2_linux64gcc6_release/apps/myApps/AI_d
 
 # Enable CUDA support for TensorFlow
 PROJECT_DEFINES = GOOGLE_CUDA=1 TF_ENABLE_GPU=1
+
+# Debug optimization
+PROJECT_OPTIMIZATION = -O0
 
 ################################################################################
 # PROJECT CFLAGS
@@ -110,11 +126,12 @@ PROJECT_DEFINES = GOOGLE_CUDA=1 TF_ENABLE_GPU=1
 #
 #   Note: Leave a leading space when adding list items with the += operator
 ################################################################################
-PROJECT_CFLAGS = -std=c++17 
+PROJECT_CFLAGS = -std=c++17 -g -O0 -DDEBUG
 
 # CUDA include paths for CUDA 12.5 compatibility
 PROJECT_CFLAGS += -I/usr/local/cuda-12.5/include
 PROJECT_CFLAGS += -I/home/fryga/of_v0.11.2_linux64gcc6_release/apps/myApps/AI_danceMirror/cudnn-linux-x86_64-9.1.0.70_cuda12-archive/include
+
 
 ################################################################################
 # PROJECT OPTIMIZATION CFLAGS
@@ -149,3 +166,16 @@ PROJECT_CFLAGS += -I/home/fryga/of_v0.11.2_linux64gcc6_release/apps/myApps/AI_da
 ################################################################################
 # PROJECT_CXX = 
 # PROJECT_CC =
+
+################################################################################
+# PROJECT LIBRARIES
+#   These are library names/paths that are platform independent and are specified
+#   using names or paths that are project-specific. 
+################################################################################
+PROJECT_LIBS = -lrealsense2
+
+################################################################################
+# USER_LIBS
+#   User specific libraries, may be platform specific
+################################################################################
+USER_LIBS = -lrealsense2

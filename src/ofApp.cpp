@@ -1,158 +1,144 @@
 /*
- * ofxTensorFlow2
- *
- * Copyright (c) 2021 ZKM | Hertz-Lab
- * Paul Bethge <bethge@zkm.de>
- * Dan Wilcox <dan.wilcox@zkm.de>
- *
- * BSD Simplified License.
- * For information on usage and redistribution, and for a DISCLAIMER OF ALL
- * WARRANTIES, see the file, "LICENSE.txt," in this distribution.
- *
- * This code has been developed at ZKM | Hertz-Lab as part of „The Intelligent 
- * Museum“ generously funded by the German Federal Cultural Foundation.
+ * Example made with love by Jonathan Frank 2022
+ * https://github.com/Jonathhhan
+ * Updated by members of the ZKM | Hertz-Lab 2022
  */
-
 #include "ofApp.h"
 
 //--------------------------------------------------------------
 void ofApp::setup() {
 	ofSetFrameRate(60);
 	ofSetVerticalSync(true);
-	ofSetWindowTitle("example_style_transfer");
-	
-	// use only a portion of the GPU memory & grow as needed
-	if(!ofxTF2::setGPUMaxMemory(ofxTF2::GPU_PERCENT_70, true)) {
+	ofSetWindowTitle("AI Dance Mirror - RealSense Style Transfer");
+
+	// ofxTF2 setup
+	if(!ofxTF2::setGPUMaxMemory(ofxTF2::GPU_PERCENT_50, true)) {
 		ofLogError() << "failed to set GPU Memory options!";
 	}
 
-	// go through the models directory and print out all the paths
-	ofDirectory modelsDir(ofToDataPath("models"));
-	modelsDir.listDir();
-	for(int i = 0; i < modelsDir.size(); i++) {
-		ofDirectory sub(modelsDir.getPath(i));
-		if(sub.isDirectory()) {
-			auto absSubPath = sub.getAbsolutePath();
-   			ofLogNotice() << "Found model: " << absSubPath;
-			modelPaths.push_back(absSubPath);
-		}
-	}
-
-	// load first model, bail out on error
-	if(!model.load(modelPaths[modelIndex])) {
+	// load model
+	if(!styleTransfer.setup(imageWidth, imageHeight, "models/my_model")) {
 		std::exit(EXIT_FAILURE);
 	}
-	modelName = ofFilePath::getBaseName(modelPaths[modelIndex]);
+	
+	#ifdef USE_REALSENSE_CAMERA
+	// Configure RealSense streams
+	cfg.enable_stream(RS2_STREAM_COLOR, cameraWidth, cameraHeight, RS2_FORMAT_RGB8, fps);
+	
+	// Start RealSense pipeline
+	try {
+		pipe.start(cfg);
+		cameraInitialized = true;
+		ofLogNotice() << "RealSense D435 started successfully";
+		
+		// Allocate textures and images
+		colorTex.allocate(cameraWidth, cameraHeight, GL_RGB);
+		colorImage.allocate(cameraWidth, cameraHeight, OF_IMAGE_COLOR);
+		
+	} catch (const rs2::error & e) {
+		ofLogError() << "Failed to start RealSense: " << e.what();
+		cameraInitialized = false;
+		std::exit(EXIT_FAILURE);
+	}
+	#endif
+	
+	// set initial style
+	setStyle(stylePaths[styleIndex]);
+	
+	// start processing thread
+	styleTransfer.startThread();
 
-#ifdef USE_LIVE_VIDEO
-	// setup video grabber
-	vidIn.setDesiredFrameRate(30);
-	vidIn.setup(camWidth, camHeight);
-#else
-	// load input image
-	ofImage imgIn;
-	//imgIn.load("zkm512x512.jpg"); // alt square image
-	imgIn.load("zkm640x480.jpg");
-	input = ofxTF2::imageToTensor(imgIn);
-
-	// alternatively, load input image via cppflow
-	//std::string imgPath(ofToDataPath("zkm512x512.jpg")); // smaller
-	//std::string imgPath(ofToDataPath("zkm640x480.jpg")); // bigger
-	//input = cppflow::decode_jpeg(cppflow::read_file(imgPath));
-	//input = cppflow::cast(input, TF_UINT8, TF_FLOAT);
-
-	// process image on first update()
-	newInput = true;
-#endif
-
-	// allocate output image
-	imgOut.allocate(nnWidth, nnHeight, OF_IMAGE_COLOR);
-
-	// start the model!
-	//model.setIdleTime(1); // very short idle time for fast systems
-	//model.setIdleTime(33); // longer ~2 fps idle time for slower systems
-	model.startThread();
-	loadTimestamp = ofGetElapsedTimef();
+	// output image
+	imgOut.allocate(imageWidth, imageHeight, OF_IMAGE_COLOR);
 }
 
 //--------------------------------------------------------------
 void ofApp::update() {
-
-	// load a new model after a timeout
-	if(autoLoad && ofGetElapsedTimef() - loadTimestamp >= loadTimeSeconds) {
-		modelIndex++;
-		if(modelIndex >= modelPaths.size()) {
-			modelIndex = 0;
+	#ifdef USE_REALSENSE_CAMERA
+	if (!cameraInitialized) return;
+	
+	try {
+		// Wait for frames with timeout
+		rs2::frameset frames = pipe.wait_for_frames(1000);
+		
+		// Get color frame
+		rs2::frame color = frames.get_color_frame();
+		if (color) {
+			// Load data into texture for display
+			colorTex.loadData((unsigned char*)color.get_data(), cameraWidth, cameraHeight, GL_RGB);
+			
+			// Update color image for style transfer processing
+			colorImage.setFromPixels((unsigned char*)color.get_data(), cameraWidth, cameraHeight, OF_IMAGE_COLOR);
+			
+			// Set input for style transfer
+			styleTransfer.setInput(colorImage.getPixels());
 		}
-		ofLogNotice() << "Load model: " << modelPaths[modelIndex];
-		//model.load(modelPaths[modelIndex]); // blocks when loading
-		model.loadAsync(modelPaths[modelIndex]); // non-blocking, loads in thread
-		modelName = ofFilePath::getBaseName(modelPaths[modelIndex]);
-		loadTimestamp = ofGetElapsedTimef();
-		newInput = true; // try to update
+		
+	} catch (const rs2::error & e) {
+		ofLogError() << "Frame capture error: " << e.what();
 	}
-
-#ifdef USE_LIVE_VIDEO
-	// create tensor from video frame
-	vidIn.update();
-	if(vidIn.isFrameNew()) {
-		// get the frame, resize, and copy to tensor
-		ofPixels & pixels = vidIn.getPixels();
-		ofPixels resizedPixels(pixels);
-		resizedPixels.resize(nnWidth, nnHeight);
-		input = ofxTF2::pixelsToTensor(resizedPixels);
-		newInput = true;
-	}
-#else
-	// input tensor already created from image file
-#endif
-
-	// thread-safe conditional input update
-	if(newInput && model.readyForInput()) {
-		model.update(input);
-		newInput = false;
-	}
-
-	// thread-safe conditional output update
-	if(model.isOutputNew()) {
-		auto output = model.getOutput();
-		ofxTF2::tensorToImage(output, imgOut);
+	#endif
+	
+	// check if style transfer processing is complete
+	if(styleTransfer.update()) {
+		imgOut = styleTransfer.getOutput();
 		imgOut.update();
+		ofLog() << "Style transfer completed!";
 	}
 }
 
 //--------------------------------------------------------------
 void ofApp::draw() {
-	ofSetColor(255);
-
-	// draw image
-	// TODO: doesn't handle aspect ratio differences...
-	imgOut.draw(0, 0, ofGetWidth(), ofGetHeight());
-
-	// draw change info
-	float diff = (ofGetElapsedTimef() - loadTimestamp);
-	std::string text = "Model: " + modelName;
-	if(autoLoad) {
-		text += "\nLoading new model in ";
-		text += std::to_string((int)(loadTimeSeconds - diff) + 1);
+	ofBackground(20);
+	
+	#ifdef USE_REALSENSE_CAMERA
+	if (cameraInitialized) {
+		// Draw original camera feed on the left
+		ofSetColor(255);
+		colorTex.draw(0, 0, 320, 240);
+		
+		// Draw style-transferred output on the right
+		imgOut.draw(340, 0, 320, 240);
+		
+		// Draw labels
+		ofSetColor(255);
+		ofDrawBitmapStringHighlight("Camera Input", 10, 20, ofColor::black, ofColor::white);
+		ofDrawBitmapStringHighlight("Style Transfer Output", 350, 20, ofColor::black, ofColor::white);
+		ofDrawBitmapStringHighlight("Current style: " + ofFilePath::getFileName(stylePaths[styleIndex]), 10, 260, ofColor::black, ofColor::green);
+		ofDrawBitmapStringHighlight("FPS: " + ofToString(ofGetFrameRate(), 1), 10, 280, ofColor::black, ofColor::green);
+	} else {
+		ofSetColor(255, 0, 0);
+		ofDrawBitmapString("Camera not initialized!", ofGetWidth()/2 - 100, ofGetHeight()/2);
 	}
-	ofDrawBitmapStringHighlight(text, 4, 12);
-
-	// draw fps
-	text = ofToString((int)ofGetFrameRate()) + " fps\n";
-	text += "a - toggle auto load";
-	ofDrawBitmapStringHighlight(text, ofGetWidth() - 164, 12);
+	#else
+	// draw the output image (fallback for non-camera mode)
+	imgOut.draw(20, 20, 320, 240);
+	#endif
+	
+	// Instructions
+	ofSetColor(200);
+	ofDrawBitmapString("LEFT/RIGHT arrows: change style, 'f': fullscreen, 'ESC': exit", 10, ofGetHeight() - 20);
 }
 
 //--------------------------------------------------------------
 void ofApp::keyPressed(int key) {
 	switch(key) {
-		case 'a': case 'A':
-			autoLoad = !autoLoad;
-			if(autoLoad) {
-				loadTimestamp = ofGetElapsedTimef();
-			}
+		case OF_KEY_LEFT:
+			prevStyle();
 			break;
+		case OF_KEY_RIGHT:
+			nextStyle();
+			break;
+		case 'f':
+		case 'F':
+			ofToggleFullscreen();
+			break;
+		case 'r':
+		case 'R':
+			// reprocess current camera frame with current style
+			ofLog() << "Reprocessing current frame...";
+			break;
+		default: break;
 	}
 }
 
@@ -204,4 +190,76 @@ void ofApp::dragEvent(ofDragInfo dragInfo) {
 //--------------------------------------------------------------
 void ofApp::gotMessage(ofMessage msg) {
 
+}
+
+//--------------------------------------------------------------
+void ofApp::prevStyle() {
+	if(styleIndex == 0) {
+		styleIndex = stylePaths.size()-1;
+	}
+	else {
+		styleIndex--;
+	}
+	setStyle(stylePaths[styleIndex]);
+	reprocessImage();
+}
+
+//--------------------------------------------------------------
+void ofApp::nextStyle() {
+	styleIndex++;
+	if(styleIndex >= stylePaths.size()) {
+		styleIndex = 0;
+	}
+	setStyle(stylePaths[styleIndex]);
+	reprocessImage();
+}
+
+//--------------------------------------------------------------
+void ofApp::setStyle(std::string & path) {
+	ofImage styleImg;
+	styleImg.setUseTexture(false); // We don't need texture for processing
+	if(!styleImg.load(path)) {
+		ofLogError() << "Failed to load style image: " << path;
+		return;
+	}
+	// Ensure RGB format
+	if(styleImg.getPixels().getNumChannels() != 3) {
+		styleImg.getPixels().setImageType(OF_IMAGE_COLOR);
+	}
+	styleTransfer.setStyle(styleImg.getPixels());
+	ofLog() << "Style changed to: " << ofFilePath::getFileName(path) << " (" << styleImg.getPixels().getNumChannels() << " channels)";
+}
+
+//--------------------------------------------------------------
+void ofApp::reprocessImage() {
+	#ifdef USE_REALSENSE_CAMERA
+	// With camera input, we don't need to reload anything
+	// The current frame will be processed with the new style automatically
+	ofLog() << "Style changed, processing will continue with new style on next frame";
+	#else
+	// reload and reprocess the input image with current style (fallback)
+	ofImage inputImage;
+	inputImage.setUseTexture(false); // We don't need texture for processing
+	if(inputImage.load("promyczek.jpg")) {
+		// Ensure RGB format
+		if(inputImage.getPixels().getNumChannels() != 3) {
+			inputImage.getPixels().setImageType(OF_IMAGE_COLOR);
+		}
+		styleTransfer.setInput(inputImage.getPixels());
+		ofLog() << "Reprocessing image with current style...";
+	}
+	#endif
+}
+
+//--------------------------------------------------------------
+void ofApp::exit() {
+	#ifdef USE_REALSENSE_CAMERA
+	if (cameraInitialized) {
+		pipe.stop();
+		ofLogNotice() << "RealSense camera stopped";
+	}
+	#endif
+	
+	// Stop style transfer thread
+	styleTransfer.stopThread();
 }

@@ -3,14 +3,17 @@ ifndef OF_ROOT
 	OF_ROOT=$(realpath ../../..)
 endif
 
-# call the project makefile!
-include $(OF_ROOT)/libs/openFrameworksCompiled/project/makefileCommon/compile.project.mk
-
-# Attempt to load a config.make file.
-# If none is found, project defaults in config.project.make will be used.
+# Include project config first so its PROJECT_* vars are visible to the build system
 ifneq ($(wildcard config.make),)
 	include config.make
 endif
 
-# ofxTensorFlow2
+# Addon (TensorFlow) targets before core compile (so their flags are merged)
 include $(OF_ROOT)/addons/ofxTensorFlow2/addon_targets.mk
+
+# Now include the core openFrameworks build rules (will pick up -lrealsense2 already)
+include $(OF_ROOT)/libs/openFrameworksCompiled/project/makefileCommon/compile.project.mk
+include $(OF_ROOT)/addons/ofxTensorFlow2/addon_targets.mk
+
+# Add RealSense library manually to PROJECT_LDFLAGS
+PROJECT_LDFLAGS += -lrealsense2

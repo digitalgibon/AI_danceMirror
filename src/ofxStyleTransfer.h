@@ -67,14 +67,65 @@ class ofxStyleTransfer {
 			if(!model.load(modelPath)) {
 				return false;
 			}
-			std::vector<std::string> inputNames = {
-				"serving_default_placeholder",
-				"serving_default_placeholder_1"
+			
+			// Try different input name combinations that are commonly used
+			// for style transfer models
+			std::vector<std::vector<std::string>> inputNameVariants = {
+				// Actual tensor names from saved_model_cli inspection
+				{"serving_default_placeholder", "serving_default_placeholder_1"},  // content image, style image
+				{"serving_default_placeholder_1", "serving_default_placeholder"},  // alternative order
+				// Model-specific names (from debug_model.py inspection)
+				{"placeholder", "placeholder_1"},  // content image, style image  
+				{"placeholder_1", "placeholder"},  // alternative order
+				// Common TensorFlow Serving names
+				{"serving_default_input_1", "serving_default_input_2"},
+				{"serving_default_content_image", "serving_default_style_image"},
+				// Alternative naming conventions
+				{"input_1", "input_2"},
+				{"content_image", "style_image"},
+				{"content", "style"}
 			};
-			std::vector<std::string> outputNames = {
-				"StatefulPartitionedCall"
+			
+			std::vector<std::string> outputNameVariants = {
+				"StatefulPartitionedCall",  // Actual output tensor name from saved_model_cli
+				"output_0",  // Model-specific output (from debug_model.py)
+				"serving_default_output",
+				"output",
+				"stylized_image"
 			};
-			model.setup(inputNames, outputNames);
+			
+			bool setupSuccess = false;
+			std::string lastError = "";
+			
+			// Try each combination
+			for (const auto& inputNames : inputNameVariants) {
+				for (const auto& outputName : outputNameVariants) {
+					try {
+						ofLogNotice("ofxStyleTransfer") << "Trying input names: " 
+							<< inputNames[0] << ", " << inputNames[1] 
+							<< " | output: " << outputName;
+						
+						model.setup(inputNames, {outputName});
+						setupSuccess = true;
+						
+						ofLogNotice("ofxStyleTransfer") << "✓ Successfully configured with inputs: " 
+							<< inputNames[0] << ", " << inputNames[1] 
+							<< " | output: " << outputName;
+						break;
+					} catch (const std::exception& e) {
+						lastError = e.what();
+						ofLogWarning("ofxStyleTransfer") << "✗ Failed with inputs: " 
+							<< inputNames[0] << ", " << inputNames[1] 
+							<< " | error: " << lastError;
+					}
+				}
+				if (setupSuccess) break;
+			}
+			
+			if (!setupSuccess) {
+				ofLogError("ofxStyleTransfer") << "Failed to setup model with any input/output combination. Last error: " << lastError;
+				return false;
+			}
 
 			// input
 			inputVector = {cppflow::tensor(0), cppflow::tensor(0)};
@@ -233,7 +284,26 @@ class ofxStyleTransfer {
 
 		// convert ofPixels to a float image tensor
 		cppflow::tensor pixelsToFloatTensor(const ofPixels & pixels) {
-			auto t = ofxTF2::pixelsToTensor(pixels);
+			// Ensure we have RGB format (3 channels) by creating a copy
+			ofPixels rgbPixels;
+			if(pixels.getNumChannels() == 4) {
+				// Convert RGBA to RGB
+				rgbPixels.allocate(pixels.getWidth(), pixels.getHeight(), OF_PIXELS_RGB);
+				for(size_t i = 0; i < pixels.getWidth() * pixels.getHeight(); i++) {
+					rgbPixels[i*3 + 0] = pixels[i*4 + 0]; // R
+					rgbPixels[i*3 + 1] = pixels[i*4 + 1]; // G
+					rgbPixels[i*3 + 2] = pixels[i*4 + 2]; // B
+					// Skip alpha channel
+				}
+			} else if(pixels.getNumChannels() == 3) {
+				// Already RGB, just copy
+				rgbPixels = pixels;
+			} else {
+				ofLogError("ofxStyleTransfer") << "Unsupported pixel format with " << pixels.getNumChannels() << " channels";
+				return cppflow::tensor(0);
+			}
+			
+			auto t = ofxTF2::pixelsToTensor(rgbPixels);
 			t = cppflow::expand_dims(t, 0);
 			t = cppflow::cast(t, TF_UINT8, TF_FLOAT);
 			t = cppflow::mul(t, cppflow::tensor({1.0f / 255.f}));

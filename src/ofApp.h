@@ -1,44 +1,17 @@
 /*
- * ofxTensorFlow2
- *
- * Copyright (c) 2021 ZKM | Hertz-Lab
- * Paul Bethge <bethge@zkm.de>
- * Dan Wilcox <dan.wilcox@zkm.de>
- *
- * BSD Simplified License.
- * For information on usage and redistribution, and for a DISCLAIMER OF ALL
- * WARRANTIES, see the file, "LICENSE.txt," in this distribution.
- *
- * This code has been developed at ZKM | Hertz-Lab as part of „The Intelligent 
- * Museum“ generously funded by the German Federal Cultural Foundation.
+ * Example made with love by Jonathan Frank 2022
+ * https://github.com/Jonathhhan
+ * Updated by members of the ZKM | Hertz-Lab 2022
  */
-
 #pragma once
 
 #include "ofMain.h"
 #include "ofxTensorFlow2.h"
+#include "ofxStyleTransfer.h"
+#include <librealsense2/rs.hpp>
 
-// uncomment this to use a live camera, otherwise we'll use an image file
-//#define USE_LIVE_VIDEO
-
-// custom ofxTF2::ThreadedModel implementation with custom pre- & postprocessing
-class ImageToImageModel : public ofxTF2::ThreadedModel {
-
-	public:
-
-		// override the runModel function of ThreadedModel
-		// this way the thread will take this augmented function
-		// otherwise it would call runModel with no way of pre-/postprocessing
-		cppflow::tensor runModel(const cppflow::tensor & input) const override {
-			// cast data type and expand to batch size of 1
-			auto inputCast = cppflow::cast(input, TF_UINT8, TF_FLOAT);
-			inputCast = cppflow::expand_dims(inputCast, 0);
-			// call to super
-			auto output = Model::runModel(inputCast);
-			// postprocess: last layer = (tf.nn.tanh(x) * 150 + 255. / 2)
-			return ofxTF2::mapTensorValues(output, -22.5f, 277.5f, 0.0f, 255.0f);
-		}
-};
+// use RealSense camera for live input
+#define USE_REALSENSE_CAMERA
 
 class ofApp : public ofBaseApp {
 
@@ -46,7 +19,8 @@ class ofApp : public ofBaseApp {
 		void setup();
 		void update();
 		void draw();
-		
+		void exit();
+
 		void keyPressed(int key);
 		void keyReleased(int key);
 		void mouseMoved(int x, int y);
@@ -59,26 +33,42 @@ class ofApp : public ofBaseApp {
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
 
-		std::vector<std::string> modelPaths; // paths to available models
-		std::size_t modelIndex = 0; // current model path index
-		std::string modelName = ""; // current model path name
-		bool newInput = false;      // is there new input to process?
-		bool autoLoad = true;       // load models automatically?
-		float loadTimestamp = 0;    // last model load time stamp
-		float loadTimeSeconds = 10; // how long to wait before loading models
-		
-		ImageToImageModel model;
-		cppflow::tensor input;
-		cppflow::tensor output;
-		int nnWidth = 640;
-		int nnHeight = 480;
+		/// goto prev style in the stylePaths vector
+		void prevStyle();
 
-	#ifdef USE_LIVE_VIDEO
-		ofVideoGrabber vidIn;
-		int camWidth = 640;
-		int camHeight = 480;
-	#else
-		ofImage imgIn;
-	#endif
-		ofImage imgOut;
+		/// goto next style in the stylePaths vector
+		void nextStyle();
+
+		/// set style from given input image
+		void setStyle(std::string & path);
+		
+		/// reprocess the input image with current style
+		void reprocessImage();
+
+		ofxStyleTransfer styleTransfer; ///< model wrapper
+		ofFloatImage imgOut; ///< output image
+
+		// RealSense camera
+		#ifdef USE_REALSENSE_CAMERA
+			rs2::pipeline pipe;
+			rs2::config cfg;
+			ofTexture colorTex;
+			ofImage colorImage;
+			int cameraWidth = 640;
+			int cameraHeight = 480;
+			int fps = 30;
+			bool cameraInitialized = false;
+		#endif
+
+		// image input & output size
+		const static int imageWidth = 640;  // Match camera resolution
+		const static int imageHeight = 480; // Match camera resolution
+
+		// paths to available style images
+		std::vector<std::string> stylePaths = {
+			"style/milton.png",
+			"style/picasso.jpeg",
+			"style/mama.jpg"
+		};
+		std::size_t styleIndex = 0; ///< current model path index
 };
