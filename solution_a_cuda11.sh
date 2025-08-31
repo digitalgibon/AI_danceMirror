@@ -1,0 +1,61 @@
+#!/bin/bash
+# Solution A: CUDA 11.8 Setup for TensorFlow Compatibility
+
+echo "=== SOLUTION A: CUDA 11.8 Setup ==="
+echo ""
+echo "This is the FASTEST and most reliable solution!"
+echo ""
+
+PROJECT_ROOT="/home/fryga/of_v0.11.2_linux64gcc6_release/apps/myApps/AI_danceMirror"
+
+echo "STEP 1: Download and Install CUDA 11.8"
+echo "---------------------------------------"
+echo "wget https://developer.download.nvidia.com/compute/cuda/11.8.0/local_installers/cuda_11.8.0_520.61.05_linux.run"
+echo "sudo sh cuda_11.8.0_520.61.05_linux.run"
+echo ""
+echo "During installation:"
+echo "- Uncheck 'Driver' (keep your current driver)"
+echo "- Check 'CUDA Toolkit 11.8'"
+echo "- Install to /usr/local/cuda-11.8"
+echo ""
+
+echo "STEP 2: Download Compatible TensorFlow 2.13 for CUDA 11.8"
+echo "---------------------------------------------------------"
+echo "wget https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-gpu-linux-x86_64-2.13.0.tar.gz"
+echo "tar -xzf libtensorflow-gpu-linux-x86_64-2.13.0.tar.gz"
+echo ""
+
+echo "STEP 3: Replace Current Libraries"
+echo "---------------------------------"
+echo "cd $PROJECT_ROOT"
+echo "# Backup current libraries"
+echo "mkdir backup_libs"
+echo "mv bin/lib*tensorflow* backup_libs/"
+echo "mv lib/lib*tensorflow* backup_libs/"
+echo ""
+echo "# Install new compatible libraries"
+echo "cp lib/* $PROJECT_ROOT/lib/"
+echo "cp lib/* $PROJECT_ROOT/bin/"
+echo ""
+
+echo "STEP 4: Update config.make"
+echo "--------------------------"
+echo "Edit $PROJECT_ROOT/config.make:"
+echo "Change line: PROJECT_CFLAGS += -I/usr/local/cuda-12.5/include"
+echo "To:          PROJECT_CFLAGS += -I/usr/local/cuda-11.8/include"
+echo ""
+
+echo "STEP 5: Update environment"
+echo "--------------------------"
+echo "export CUDA_HOME=/usr/local/cuda-11.8"
+echo "export PATH=/usr/local/cuda-11.8/bin:\$PATH"
+echo "export LD_LIBRARY_PATH=\$PROJECT_ROOT/bin:\$PROJECT_ROOT/lib:/usr/local/cuda-11.8/lib64:\$LD_LIBRARY_PATH"
+echo ""
+
+echo "STEP 6: Rebuild and test"
+echo "------------------------"
+echo "make clean && make Debug"
+echo "./bin/AI_danceMirror_debug"
+echo ""
+
+echo "This solution should work immediately with ~30 minutes setup time."

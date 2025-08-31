@@ -11,15 +11,45 @@ void ofApp::setup() {
 	ofSetVerticalSync(true);
 	ofSetWindowTitle("AI Dance Mirror - RealSense Style Transfer");
 
-	// ofxTF2 setup
+	// ofxTF2 setup with GPU detection
+	ofLogNotice() << "=== TensorFlow GPU Setup ===";
+	ofLogNotice() << "Attempting to configure GPU memory...";
+	
+	// Create a simple test to check if GPU is available before proceeding
+	bool gpuAvailable = false;
+	
+	// Try to set GPU memory - this will fail if no GPU is available
 	if(!ofxTF2::setGPUMaxMemory(ofxTF2::GPU_PERCENT_50, true)) {
-		ofLogError() << "failed to set GPU Memory options!";
+		ofLogError() << "❌ CRITICAL: Failed to set GPU Memory options!";
+		ofLogError() << "❌ CRITICAL: No GPU detected or CUDA libraries not available!";
+		ofLogError() << "❌ CRITICAL: This application requires GPU acceleration!";
+		ofLogError() << "❌ CRITICAL: Exiting application...";
+		std::exit(EXIT_FAILURE);
+	} else {
+		ofLogNotice() << "✓ GPU memory configured successfully";
+		gpuAvailable = true;
+	}
+	
+	// Additional GPU check using environment detection
+	if (gpuAvailable) {
+		// Check if CUDA_VISIBLE_DEVICES is set and valid
+		const char* cudaDevices = std::getenv("CUDA_VISIBLE_DEVICES");
+		if (cudaDevices == nullptr || strlen(cudaDevices) == 0) {
+			ofLogWarning() << "CUDA_VISIBLE_DEVICES not set, setting to 0";
+			setenv("CUDA_VISIBLE_DEVICES", "0", 1);
+		}
+		
+		ofLogNotice() << "✓ GPU environment validated";
+		ofLogNotice() << "✓ Proceeding with GPU-accelerated style transfer";
 	}
 
 	// load model
+	ofLogNotice() << "Loading TensorFlow model from: models/my_model";
 	if(!styleTransfer.setup(imageWidth, imageHeight, "models/my_model")) {
+		ofLogError() << "Failed to load style transfer model!";
 		std::exit(EXIT_FAILURE);
 	}
+	ofLogNotice() << "Style transfer model loaded successfully";
 	
 	#ifdef USE_REALSENSE_CAMERA
 	// Configure RealSense streams

@@ -104,8 +104,22 @@ void printTensorFlowDebugInfo() {
         std::cout << "✗ Failed to load libtensorflow_framework.so: " << dlerror() << std::endl;
     }
     
-    // Check TensorFlow status
-    TF_Status* status = TF_NewStatus();
+    // Check CUDA libraries
+    handle = dlopen("libcudart.so.12", RTLD_LAZY);
+    if (handle) {
+        std::cout << "✓ libcudart.so.12 available" << std::endl;
+        dlclose(handle);
+    } else {
+        std::cout << "✗ libcudart.so.12 not available: " << dlerror() << std::endl;
+    }
+    
+    handle = dlopen("libcudnn.so", RTLD_LAZY);
+    if (handle) {
+        std::cout << "✓ libcudnn.so available" << std::endl;
+        dlclose(handle);
+    } else {
+        std::cout << "✗ libcudnn.so not available: " << dlerror() << std::endl;
+    }
     
     // Create simple session options to test TensorFlow
     TF_SessionOptions* opts = TF_NewSessionOptions();
@@ -116,11 +130,7 @@ void printTensorFlowDebugInfo() {
         std::cout << "✗ Failed to create TensorFlow session options" << std::endl;
     }
     
-    // Test CUDA availability
-    std::cout << "Testing CUDA availability..." << std::endl;
-    
     // Cleanup
-    TF_DeleteStatus(status);
     TF_DeleteSessionOptions(opts);
     
     std::cout << "=================================" << std::endl;
@@ -152,14 +162,29 @@ void printEnvironmentDebugInfo() {
 int main() {
     // Set environment variables to suppress protobuf errors
     setenv("PROTOBUF_INTERNAL_CHECK_DISABLE", "1", 1);
-    setenv("TF_CPP_MIN_LOG_LEVEL", "3", 1);  // Only show errors
+    
+    // Force TensorFlow to show all logs for GPU detection
+    setenv("TF_CPP_MIN_LOG_LEVEL", "0", 1);
     
     // Print basic debug information (without TensorFlow initialization)
     printEnvironmentDebugInfo();
     
-    // Skip TensorFlow C API model inspection to avoid protobuf conflicts
-    std::cout << "Skipping low-level model inspection due to protobuf conflicts" << std::endl;
+    // Print GPU information
+    std::cout << "\n=== GPU Detection ===" << std::endl;
+    std::cout << "Checking for NVIDIA GPU..." << std::endl;
+    
+    // Check NVIDIA GPU availability first
+    int gpu_check = system("nvidia-smi > /dev/null 2>&1");
+    if (gpu_check != 0) {
+        std::cout << "✗ NVIDIA GPU not detected or driver not available!" << std::endl;
+        std::cout << "This application requires a NVIDIA GPU with CUDA support." << std::endl;
+        std::cout << "Exiting..." << std::endl;
+        return EXIT_FAILURE;
+    }
+    
+    std::cout << "✓ NVIDIA GPU detected" << std::endl;
     std::cout << "Starting openFrameworks application..." << std::endl;
+    std::cout << "Application will exit if TensorFlow cannot use GPU..." << std::endl;
     
 	ofSetupOpenGL(520, 400, OF_WINDOW); // <-------- setup the GL context
 

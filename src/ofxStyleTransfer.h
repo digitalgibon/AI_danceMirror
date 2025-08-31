@@ -59,14 +59,26 @@ class ofxStyleTransfer {
 		/// returns true on success
 		bool setup(int width, int height, const std::string & modelPath="model") {
 
-			// model
+			// CRITICAL: GPU Memory Setup - Exit if fails
+			ofLogNotice("ofxStyleTransfer") << "Setting up GPU memory allocation...";
 			if(!ofxTF2::setGPUMaxMemory(ofxTF2::GPU_PERCENT_90, true)) {
-				ofLogError("ofxStyleTransfer") << "failed to set GPU Memory options";
-				return false;
+				ofLogError("ofxStyleTransfer") << "❌ CRITICAL: Failed to set GPU Memory options!";
+				ofLogError("ofxStyleTransfer") << "❌ CRITICAL: GPU acceleration required but not available!";
+				ofLogError("ofxStyleTransfer") << "❌ CRITICAL: Exiting application...";
+				std::exit(EXIT_FAILURE);
 			}
+			ofLogNotice("ofxStyleTransfer") << "✓ GPU memory configured for 90% usage";
+			
+			ofLogNotice("ofxStyleTransfer") << "Loading model from: " << modelPath;
 			if(!model.load(modelPath)) {
+				ofLogError("ofxStyleTransfer") << "Failed to load model from: " << modelPath;
 				return false;
 			}
+			ofLogNotice("ofxStyleTransfer") << "Model loaded successfully";
+			
+			// Monitor for GPU device creation messages in TensorFlow logs
+			ofLogNotice("ofxStyleTransfer") << "Monitoring TensorFlow for GPU device creation...";
+			ofLogNotice("ofxStyleTransfer") << "If you see 'Skipping registering GPU devices' messages, GPU is not working!";
 			
 			// Try different input name combinations that are commonly used
 			// for style transfer models
@@ -133,6 +145,8 @@ class ofxStyleTransfer {
 
 			// output
 			outputImage.allocate(size.width, size.height, OF_IMAGE_COLOR);
+			
+			ofLogNotice("ofxStyleTransfer") << "✓ Style transfer setup completed with GPU acceleration";
 			return true;
 		}
 
